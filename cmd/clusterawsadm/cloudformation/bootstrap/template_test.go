@@ -25,8 +25,9 @@ import (
 	"github.com/awslabs/goformation/v4/cloudformation"
 	"github.com/sergi/go-diff/diffmatchpatch"
 	"k8s.io/utils/pointer"
-	infrav1 "sigs.k8s.io/cluster-api-provider-aws/api/v1alpha4"
 	"sigs.k8s.io/yaml"
+
+	infrav1 "sigs.k8s.io/cluster-api-provider-aws/api/v1alpha4"
 )
 
 type testCase struct {
@@ -155,6 +156,14 @@ func Test_RenderCloudformation(t *testing.T) {
 			template: func() Template {
 				t := NewTemplate()
 				t.Spec.EKS.Disable = true
+				return t
+			},
+		},
+		{
+			fixture: "with_eks_console",
+			template: func() Template {
+				t := NewTemplate()
+				t.Spec.EKS.EnableUserEKSConsolePolicy = true
 				return t
 			},
 		},
