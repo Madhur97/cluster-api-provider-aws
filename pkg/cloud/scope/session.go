@@ -255,66 +255,70 @@ func buildProvidersForRef(
 		return providers, nil
 	}
 
-	var provider identity.AWSPrincipalTypeProvider
+	// var provider identity.AWSPrincipalTypeProvider
 	identityObjectKey := client.ObjectKey{Name: ref.Name}
 	log = log.WithValues("identityKey", identityObjectKey)
 	log.V(4).Info("Getting identity")
 
-	switch ref.Kind {
-	case infrav1.ControllerIdentityKind:
-		err := buildAWSClusterControllerIdentity(ctx, identityObjectKey, k8sClient, clusterScoper)
-		if err != nil {
-			return providers, err
-		}
-		// returning empty provider list to default to Controller Principal.
-		return []identity.AWSPrincipalTypeProvider{}, nil
-	case infrav1.ClusterStaticIdentityKind:
-		provider, err := buildAWSClusterStaticIdentity(ctx, identityObjectKey, k8sClient, clusterScoper)
-		if err != nil {
-			return providers, err
-		}
-		providers = append(providers, provider)
-	case infrav1.ClusterRoleIdentityKind:
-		roleIdentity := &infrav1.AWSClusterRoleIdentity{}
-		err := k8sClient.Get(ctx, identityObjectKey, roleIdentity)
-		if err != nil {
-			return providers, err
-		}
-		log.V(4).Info("Principal retrieved")
-		canUse, err := isClusterPermittedToUsePrincipal(k8sClient, roleIdentity.Spec.AllowedNamespaces, clusterScoper.Namespace())
-		if err != nil {
-			return providers, err
-		}
-		if !canUse {
-			setPrincipalUsageNotAllowedCondition(infrav1.ClusterRoleIdentityKind, identityObjectKey, clusterScoper)
-			return providers, errors.Errorf(notPermittedError, infrav1.ClusterRoleIdentityKind, roleIdentity.Name)
-		}
-		setPrincipalUsageAllowedCondition(clusterScoper)
+	providers = append(providers, identity.NewAWSServiceAccountPrincipalTypeProvider(log))
 
-		if roleIdentity.Spec.SourceIdentityRef != nil {
-			providers, err = buildProvidersForRef(ctx, providers, k8sClient, clusterScoper, roleIdentity.Spec.SourceIdentityRef, log)
-			if err != nil {
-				return providers, err
-			}
-		}
-		var sourceProvider identity.AWSPrincipalTypeProvider
-		if len(providers) > 0 {
-			sourceProvider = providers[len(providers)-1]
-			// Remove last provider
-			if len(providers) > 0 {
-				providers = providers[:len(providers)-1]
-			}
-		}
+	// switch ref.Kind {
+	// case infrav1.ControllerIdentityKind:
+	// 	err := buildAWSClusterControllerIdentity(ctx, identityObjectKey, k8sClient, clusterScoper)
+	// 	if err != nil {
+	// 		return providers, err
+	// 	}
+	// 	// returning empty provider list to default to Controller Principal.
+	// 	return []identity.AWSPrincipalTypeProvider{}, nil
+	// case infrav1.ClusterStaticIdentityKind:
+	// 	provider, err := buildAWSClusterStaticIdentity(ctx, identityObjectKey, k8sClient, clusterScoper)
+	// 	if err != nil {
+	// 		return providers, err
+	// 	}
+	// 	providers = append(providers, provider)
+	// case infrav1.ClusterRoleIdentityKind:
+	// 	roleIdentity := &infrav1.AWSClusterRoleIdentity{}
+	// 	err := k8sClient.Get(ctx, identityObjectKey, roleIdentity)
+	// 	if err != nil {
+	// 		return providers, err
+	// 	}
+	// 	log.V(4).Info("Principal retrieved")
+	// 	canUse, err := isClusterPermittedToUsePrincipal(k8sClient, roleIdentity.Spec.AllowedNamespaces, clusterScoper.Namespace())
+	// 	if err != nil {
+	// 		return providers, err
+	// 	}
+	// 	if !canUse {
+	// 		setPrincipalUsageNotAllowedCondition(infrav1.ClusterRoleIdentityKind, identityObjectKey, clusterScoper)
+	// 		return providers, errors.Errorf(notPermittedError, infrav1.ClusterRoleIdentityKind, roleIdentity.Name)
+	// 	}
+	// 	setPrincipalUsageAllowedCondition(clusterScoper)
 
-		if sourceProvider != nil {
-			provider = identity.NewAWSRolePrincipalTypeProvider(roleIdentity, &sourceProvider, log)
-		} else {
-			provider = identity.NewAWSRolePrincipalTypeProvider(roleIdentity, nil, log)
-		}
-		providers = append(providers, provider)
-	default:
-		return providers, errors.Errorf("No such provider known: '%s'", ref.Kind)
-	}
+	// 	if roleIdentity.Spec.SourceIdentityRef != nil {
+	// 		providers, err = buildProvidersForRef(ctx, providers, k8sClient, clusterScoper, roleIdentity.Spec.SourceIdentityRef, log)
+	// 		if err != nil {
+	// 			return providers, err
+	// 		}
+	// 	}
+	// 	var sourceProvider identity.AWSPrincipalTypeProvider
+	// 	if len(providers) > 0 {
+	// 		sourceProvider = providers[len(providers)-1]
+	// 		// Remove last provider
+	// 		if len(providers) > 0 {
+	// 			providers = providers[:len(providers)-1]
+	// 		}
+	// 	}
+
+	// 	if sourceProvider != nil {
+	// 		provider = identity.NewAWSRolePrincipalTypeProvider(roleIdentity, &sourceProvider, log)
+	// 	} else {
+	// 		provider = identity.NewAWSRolePrincipalTypeProvider(roleIdentity, nil, log)
+	// 	}
+	// 	providers = append(providers, provider)
+	// case infrav1.ServiceAccountIdentityKind:
+	// 	 providers = append(providers, identity.NewAWSServiceAccountPrincipalTypeProvider(log))
+	// default:
+	// 	return providers, errors.Errorf("No such provider known: '%s'", ref.Kind)
+	// }
 	conditions.MarkTrue(clusterScoper.InfraCluster(), infrav1.PrincipalUsageAllowedCondition)
 	return providers, nil
 }

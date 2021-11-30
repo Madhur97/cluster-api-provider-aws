@@ -101,6 +101,8 @@ var (
 	// ClusterRoleIdentityKind defines identity reference kind as AWSClusterRoleIdentity.
 	ClusterRoleIdentityKind = AWSIdentityKind("AWSClusterRoleIdentity")
 
+	ServiceAccountIdentityKind = AWSIdentityKind("ServiceAccountIdentityKind")
+
 	// ClusterStaticIdentityKind defines identity reference kind as AWSClusterStaticIdentity.
 	ClusterStaticIdentityKind = AWSIdentityKind("AWSClusterStaticIdentity")
 )

@@ -77,6 +77,12 @@ func GetAssumeRoleCredentials(roleIdentityProvider *AWSRolePrincipalTypeProvider
 	return creds
 }
 
+func GetAssumeRoleWithWebIdentityCredentials(serviceAccountIdentityProvider *AWSServiceAccountPrincipalTypeProvider, awsConfig *aws.Config) *credentials.Credentials {
+	sess := session.Must(session.NewSession(awsConfig))
+	creds := stscreds.NewWebIdentityCredentials(sess, "arn:aws:iam::628505031605:role/test-oidc-from-capa", "session-name", "/var/run/secrets/kubernetes.io/serviceaccount/token")
+	return creds
+}
+
 // NewAWSRolePrincipalTypeProvider will create a new AWSRolePrincipalTypeProvider from an AWSClusterRoleIdentity.
 func NewAWSRolePrincipalTypeProvider(identity *infrav1.AWSClusterRoleIdentity, sourceProvider *AWSPrincipalTypeProvider, log logr.Logger) *AWSRolePrincipalTypeProvider {
 	return &AWSRolePrincipalTypeProvider{
@@ -170,5 +176,55 @@ func (p *AWSRolePrincipalTypeProvider) Retrieve() (credentials.Value, error) {
 
 // IsExpired checks the expiration state of the AWSRolePrincipalTypeProvider.
 func (p *AWSRolePrincipalTypeProvider) IsExpired() bool {
+	return p.credentials.IsExpired()
+}
+
+type AWSServiceAccountPrincipalTypeProvider struct {
+	//Principal      *infrav1.AWSClusterRoleIdentity
+	Principal   string
+	credentials *credentials.Credentials
+	log         logr.Logger
+	stsClient   stsiface.STSAPI
+}
+
+// NewAWSServiceAccountPrincipalTypeProvider will create a new AWSServiceAccountPrincipalTypeProvider from an AWSClusterRoleIdentity.
+func NewAWSServiceAccountPrincipalTypeProvider(log logr.Logger) *AWSServiceAccountPrincipalTypeProvider {
+	return &AWSServiceAccountPrincipalTypeProvider{
+		Principal:   "dummy",
+		credentials: nil,
+		stsClient:   nil,
+		log:         log.WithName("AWSServiceAccountPrincipalTypeProvider"),
+	}
+}
+
+// Hash returns the byte encoded AWSServiceAccountPrincipalTypeProvider.
+func (p *AWSServiceAccountPrincipalTypeProvider) Hash() (string, error) {
+	var serviceAccountIdentityValue bytes.Buffer
+	err := gob.NewEncoder(&serviceAccountIdentityValue).Encode(p)
+	if err != nil {
+		return "", err
+	}
+	hash := sha256.New()
+	return string(hash.Sum(serviceAccountIdentityValue.Bytes())), nil
+}
+
+// Name returns the name of the AWSServiceAccountPrincipalTypeProvider.
+func (p *AWSServiceAccountPrincipalTypeProvider) Name() string {
+	return "service-account-identity-nanem"
+}
+
+// Retrieve returns the credential values for the AWSServiceAccountPrincipalTypeProvider.
+func (p *AWSServiceAccountPrincipalTypeProvider) Retrieve() (credentials.Value, error) {
+	if p.credentials == nil || p.IsExpired() {
+		awsConfig := aws.NewConfig()
+		creds := GetAssumeRoleWithWebIdentityCredentials(p, awsConfig)
+		// Update credentials
+		p.credentials = creds
+	}
+	return p.credentials.Get()
+}
+
+// IsExpired checks the expiration state of the AWSServiceAccountPrincipalTypeProvider.
+func (p *AWSServiceAccountPrincipalTypeProvider) IsExpired() bool {
 	return p.credentials.IsExpired()
 }
