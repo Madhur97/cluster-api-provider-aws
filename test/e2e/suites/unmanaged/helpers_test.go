@@ -32,6 +32,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/efs"
 	"github.com/aws/aws-sdk-go/service/elb"
 	"github.com/blang/semver"
 	"github.com/onsi/ginkgo"
@@ -42,6 +43,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimachinerytypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/utils/pointer"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -637,4 +639,130 @@ func LatestCIReleaseForVersion(searchVersion string) (string, error) {
 	}
 
 	return strings.TrimSpace(string(b)), nil
+}
+
+func createEFS() *efs.FileSystemDescription {
+	efs, err := shared.CreateEFS(e2eCtx, string(uuid.NewUUID()))
+	Expect(err).NotTo(HaveOccurred())
+	Eventually(func() (string, error) {
+		return shared.GetEFSState(e2eCtx, *efs.FileSystemId)
+	}, 5*time.Minute).Should(Equal("available"))
+	return efs
+}
+
+func createEFSSecurityGroup(clusterName string, vpc *ec2.Vpc) *ec2.CreateSecurityGroupOutput {
+	securityGroup, err := shared.CreateSecurityGroup(e2eCtx, clusterName+"-efs-sg", "security group for EFS Access", *(vpc.VpcId))
+	Expect(err).NotTo(HaveOccurred())
+	nodeSecurityGroup, err := shared.GetNodeSecurityGroupByClusterName(e2eCtx, clusterName)
+	Expect(err).NotTo(HaveOccurred())
+	_, err = shared.CreateSecurityGroupIngressRuleWithSourceSG(e2eCtx, *securityGroup.GroupId, "tcp", 2049, *nodeSecurityGroup.GroupId)
+	Expect(err).NotTo(HaveOccurred())
+	return securityGroup
+}
+
+func createMountTarget(efs *efs.FileSystemDescription, securityGroup *ec2.CreateSecurityGroupOutput, vpc *ec2.Vpc) *efs.MountTargetDescription {
+	mt, err := shared.CreateMountTargetOnEFS(e2eCtx, *efs.FileSystemId, *vpc.VpcId, *securityGroup.GroupId)
+	Expect(err).NotTo(HaveOccurred())
+	Eventually(func() (string, error) {
+		return shared.GetMountTargetState(e2eCtx, *mt.MountTargetId)
+	},5*time.Minute).Should(Equal("available"))
+	return mt
+}
+
+func deleteMountTarget(mountTarget *efs.MountTargetDescription) {
+	_, err := shared.DeleteMountTarget(e2eCtx, *mountTarget.MountTargetId)
+	Expect(err).NotTo(HaveOccurred())
+	Eventually(func(g Gomega) {
+		_, err = shared.GetMountTarget(e2eCtx, *mountTarget.MountTargetId)
+		aerr, ok := err.(awserr.Error)
+		g.Expect(ok).To(BeTrue())
+		g.Expect(aerr.Code()).To(Equal(efs.ErrCodeMountTargetNotFound))
+	},5*time.Minute).Should(Succeed())
+}
+
+func createEFSStorageClass(storageClassName string, clusterClient crclient.Client, efs *efs.FileSystemDescription) {
+	storageClass := &storagev1.StorageClass{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "storage.k8s.io/v1",
+			Kind:       "StorageClass",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: storageClassName,
+		},
+		MountOptions: []string{"tls"},
+		Parameters: map[string]string{
+			"provisioningMode": "efs-ap",
+			"fileSystemId":     *efs.FileSystemId,
+			"directoryPerms":   "700",
+			"gidRangeStart":    "1000",
+			"gidRangeEnd":      "2000",
+		},
+		Provisioner: "efs.csi.aws.com",
+	}
+	Expect(clusterClient.Create(context.TODO(), storageClass)).NotTo(HaveOccurred())
+}
+
+func createEFSPVC(storageClassName string, clusterClient crclient.Client){
+	pvc := &corev1.PersistentVolumeClaim{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "PersistentVolumeClaim",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "efs-claim",
+			Namespace: metav1.NamespaceDefault,
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{
+				corev1.ReadWriteMany,
+			},
+			StorageClassName: &storageClassName,
+			Resources: corev1.ResourceRequirements{
+				Requests: map[corev1.ResourceName]resource.Quantity{
+					corev1.ResourceStorage: *resource.NewQuantity(5*1024*1024*1024, resource.BinarySI),
+				},
+			},
+		},
+	}
+	Expect(clusterClient.Create(context.TODO(), pvc)).NotTo(HaveOccurred())
+}
+
+func createPodWithEFSMount(clusterClient crclient.Client) {
+	pod := &corev1.Pod{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Pod",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "efs-app",
+			Namespace: metav1.NamespaceDefault,
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:    "app",
+					Image:   "centos",
+					Command: []string{"/bin/sh"},
+					Args:    []string{"-c", "while true; do echo $(date -u) >> /data/out; sleep 5; done"},
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      "persistent-storage",
+							MountPath: "/data",
+						},
+					},
+				},
+			},
+			Volumes: []corev1.Volume{
+				{
+					Name: "persistent-storage",
+					VolumeSource: corev1.VolumeSource{
+						PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+							ClaimName: "efs-claim",
+						},
+					},
+				},
+			},
+		},
+	}
+	Expect(clusterClient.Create(context.TODO(), pod)).NotTo(HaveOccurred())
 }

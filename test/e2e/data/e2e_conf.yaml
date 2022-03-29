@@ -188,6 +188,7 @@ providers:
         files:
           - sourcePath: "./shared/v1alpha3_provider/metadata.yaml"
           - sourcePath: "./infrastructure-aws/capi-upgrades/v1alpha3/cluster-template.yaml"
+          - sourcePath: "./infrastructure-aws/generated/cluster-template-efs-support.yaml"
       - name: v0.7.2 # latest published release in the v1alpha4 series; this is used for v1alpha4 --> v1beta1 clusterctl upgrades test only.
         value: "https://github.com/kubernetes-sigs/cluster-api-provider-aws/releases/download/v0.7.2/infrastructure-components.yaml"
         type: "url"
@@ -195,6 +196,7 @@ providers:
         files:
           - sourcePath: "./shared/v1alpha4_provider/metadata.yaml"
           - sourcePath: "./infrastructure-aws/capi-upgrades/v1alpha4/cluster-template.yaml"
+          - sourcePath: "./infrastructure-aws/generated/cluster-template-efs-support.yaml"
       - name: v1.2.0 # latest published release in the v1alpha4 series; this is used for v1alpha4 --> v1beta1 clusterctl upgrades test only.
         value: "https://github.com/kubernetes-sigs/cluster-api-provider-aws/releases/download/v1.2.0/infrastructure-components.yaml"
         type: "url"
@@ -202,11 +204,15 @@ providers:
         files:
           - sourcePath: "./shared/v1beta1_provider/metadata.yaml"
           - sourcePath: "./infrastructure-aws/generated/cluster-template.yaml"
+          - sourcePath: "./infrastructure-aws/generated/cluster-template-efs-support.yaml"
       - name: v1.2.99
         # Use manifest from source files
         value: ../../../config/default
         contract: v1beta1
         files:
+          - sourcePath: "./infrastructure-aws/generated/cluster-template-external-csi.yaml"
+          - sourcePath: "./infrastructure-aws/generated/cluster-template-csimigration-off.yaml"
+          - sourcePath: "./infrastructure-aws/generated/cluster-template-efs-support.yaml"
           - sourcePath: "./infrastructure-aws/generated/cluster-template-external-cloud-provider.yaml"
           - sourcePath: "./infrastructure-aws/generated/cluster-template-kcp-remediation.yaml"
           - sourcePath: "./infrastructure-aws/generated/cluster-template-kcp-scale-in.yaml"
